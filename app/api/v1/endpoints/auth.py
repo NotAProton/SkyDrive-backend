@@ -31,6 +31,7 @@ async def login(user: UserLogin):
         })
         return response
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/logout")
