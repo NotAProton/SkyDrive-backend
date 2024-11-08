@@ -188,7 +188,7 @@
 
 ### Response
 
-- **204 No Content**: File deleted successfully.
+- **200 OK**: File deleted successfully.
 
 ```json
 {
