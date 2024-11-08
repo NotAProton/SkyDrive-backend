@@ -6,7 +6,12 @@ security = HTTPBearer()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Security(security)):
     try:
-        user = supabase.auth.get_user(credentials.credentials)
+        # the token is acc_token+ref_token
+        acc, ref = credentials.credentials.split("+")
+        supabase.auth.access_token = acc
+
+        user = supabase.auth.set_session(acc,ref)
+        user = user["user"]
         return user
     except Exception as e:
         raise HTTPException(
