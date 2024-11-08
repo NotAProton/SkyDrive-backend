@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class Settings(BaseSettings):
     API_V1_PREFIX: str
     PROJECT_NAME: str
@@ -11,8 +12,12 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_KEY: str
     SUPABASE_SECRET_KEY: str
+    S3_ENDPOINT_URL: str
+    S3_ACCESS_KEY_ID: str
+    S3_SECRET_ACCESS_KEY: str
 
     class Config:
         env_file = ".env"
 
-settings = Settings()
+
+settings = Settings()  # type: ignore

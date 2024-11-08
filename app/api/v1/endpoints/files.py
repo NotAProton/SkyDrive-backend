@@ -2,12 +2,14 @@ import boto3
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from typing import List
 from ....db.client import supabase
+from ....config import settings
+
 
 s3 = boto3.client(
     service_name="s3",
-    endpoint_url='https://<accountid>.r2.cloudflarestorage.com',
-    aws_access_key_id='<access_key_id>',
-    aws_secret_access_key='<access_key_secret>',
+    endpoint_url=settings.S3_ENDPOINT_URL,
+    aws_access_key_id=settings.S3_ACCESS_KEY_ID,
+    aws_secret_access_key=settings.S3_SECRET_ACCESS_KEY,
     region_name="auto",
 )
 
@@ -15,7 +17,6 @@ router = APIRouter()
 
 @router.post("/")
 async def get_user_files(filter: str):
-    # Logic to get user files based on filter
     files = supabase.table('files').select('*').eq('filter', filter).execute()
     return {
         "message": "Files retrieved successfully",
