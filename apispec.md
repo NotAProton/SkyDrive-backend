@@ -67,7 +67,7 @@
 
 ```json
 {
-  "filter": "shared" | "private" | "public",
+  "filter": "shared" | "private",
 }
 ```
 
@@ -102,7 +102,6 @@
 #### Request Body (Form Data)
 
 - `file` - File to be uploaded (binary data)
-- `isPublic` (optional) - Boolean indicating if the file should be public (default is `false`).
 
 #### Response
 
@@ -150,7 +149,7 @@
 
 ---
 
-### 7. Change Sharing Options (Public/Private)
+### 7. Share a File
 
 **Route:** `/api/files/{fileId}/share`  
 **Method:** `PATCH`
