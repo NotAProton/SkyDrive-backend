@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
-from .api.v1.endpoints import auth
+from .api.v1.endpoints import auth, files
+
 from .auth import get_current_user
 
 app = FastAPI(
@@ -25,6 +26,12 @@ app.include_router(
     prefix=f"{settings.API_V1_PREFIX}/auth",
     tags=["auth"]
 )
+app.include_router(
+    files.router,
+    prefix=f"{settings.API_V1_PREFIX}/files",
+    tags=["files"]
+)
+
 
 # Example protected endpoint
 @app.get("/protected")

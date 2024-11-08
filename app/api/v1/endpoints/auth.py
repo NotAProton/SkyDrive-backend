@@ -29,14 +29,14 @@ async def login(user: UserLogin):
             "email": user.email,
             "password": user.password
         })
-        login_response =  {
+        login_response = {
             "session_token": response["data"]["session"]["access_token"] + "+" + response["data"]["session"]["refresh_token"],
             "user": {
                 "id": response["data"]["user"]["id"],
                 "email": response["data"]["user"]["email"]
             }
         }
-        return response
+        return login_response
     except Exception as e:
         print(e)
         raise HTTPException(status_code=400, detail=str(e))
