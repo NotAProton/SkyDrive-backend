@@ -30,7 +30,7 @@
 
 ### 2. Sign In
 
-**Route:** `/api/auth/signin`  
+**Route:** `/api/auth/login`  
 **Method:** `POST`
 
 #### Request Body
