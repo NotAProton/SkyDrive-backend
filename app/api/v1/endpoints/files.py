@@ -221,6 +221,7 @@ async def preview_file(fileId: str, userid=Depends(get_current_user)):
     return {
         "message": "File preview retrieved successfully",
         "fileId": file_data["id"],
+        "fileName": file_data["filename"],
         "downloadURL": file_data["file_url"],
         "previewImage": file_data["preview_image"],
         "createdAt": file_data["created_at"],
