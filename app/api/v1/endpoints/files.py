@@ -5,10 +5,9 @@ from io import BytesIO
 from typing import List, Literal
 
 import boto3
-import fitz
 import pymupdf
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from PIL import Image
+from PIL import Image, ImageFilter
 from pydantic import BaseModel
 
 from app.auth import get_current_user
@@ -63,46 +62,81 @@ async def get_user_files(req: GetFiles, userid=Depends(get_current_user)):
     return {"message": "Files retrieved successfully", "files": files}
 
 
+def squarify_image(image: Image.Image, size: int = 128) -> Image.Image:
+    # Create a square canvas with blurred background
+    target_size = (size, size)
+    result = Image.new("RGBA", target_size, (255, 255, 255, 0))
+
+    # Create blurred background from original
+    background = image.copy()
+    background = background.resize(target_size, Image.Resampling.BILINEAR)
+    background = background.filter(ImageFilter.GaussianBlur(radius=10))
+
+    # Resize original image maintaining aspect ratio
+    aspect = image.width / image.height
+    if aspect > 1:
+        new_width = size
+        new_height = int(size / aspect)
+    else:
+        new_width = int(size * aspect)
+        new_height = size
+
+    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+    # Calculate position to center the image
+    x = (size - new_width) // 2
+    y = (size - new_height) // 2
+
+    # Paste background first, then the resized image
+    result.paste(background, (0, 0))
+    result.paste(image, (x, y))
+
+    return result
+
+
 def generate_preview_image(file_content: bytes, filename: str) -> str:
+    print(filename)
     # Check if the file is in the supported formats
     if filename.lower().endswith((".png", ".jpeg", ".jpg")):
         # Open the image file from bytes
         image = Image.open(BytesIO(file_content))
 
-        # Create a 128x128 thumbnail
-        image.thumbnail((128, 128))
+        # Create squared thumbnail with blur background
+        squared_image = squarify_image(image)
 
         # Convert the thumbnail to PNG format and save to a BytesIO object
         preview_image = BytesIO()
-        image.save(preview_image, format="PNG")
+        squared_image.save(preview_image, format="PNG")
 
         # Encode the image to base64
         preview_image_base64 = base64.b64encode(preview_image.getvalue()).decode(
             "utf-8"
         )
-
         return preview_image_base64
-    elif filename.lower().endswith(".pdf"):
-        # Open the PDF file from bytes
-        pdf_document = fitz.open(stream=file_content, filetype="pdf")
-        # Get the first page
-        page = pdf_document.load_page(0)
-        # Render the page to an image
-        pix = pymupdf.Pixmap(page)
-        image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
-        # Create a 128x128 thumbnail
-        image.thumbnail((128, 128))
+    elif filename.lower().endswith(".pdf"):
+        print("PDF")
+        # Open the PDF file from bytes
+        pdf_document = pymupdf.open(stream=file_content, filetype="pdf")
+        # Get the first page
+        page = pdf_document[0]
+        # Render page to pixmap with reasonable resolution
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))  # type: ignore
+        # Convert pixmap to PIL Image
+        pngtobytes = pix.tobytes("png")
+        image = Image.open(BytesIO(pngtobytes))
+
+        # Create squared thumbnail with blur background
+        squared_image = squarify_image(image)
 
         # Convert the thumbnail to PNG format and save to a BytesIO object
         preview_image = BytesIO()
-        image.save(preview_image, format="PNG")
+        squared_image.save(preview_image, format="PNG")
 
         # Encode the image to base64
         preview_image_base64 = base64.b64encode(preview_image.getvalue()).decode(
             "utf-8"
         )
-
         return preview_image_base64
     else:
         raise ValueError(
