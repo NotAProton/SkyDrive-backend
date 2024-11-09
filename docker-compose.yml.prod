@@ -1,0 +1,44 @@
+version: '3'
+
+services:
+  app:
+    image: ghcr.io/notaproton/skydrive-backend:latest
+    container_name: fastapi-app
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY}
+      API_V1_PREFIX: ${API_V1_PREFIX}
+      PROJECT_NAME: ${PROJECT_NAME}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - app-network
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=3600 # Check every hour
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_REVIVE_STOPPED=true
+    command: --label-enable # Only watch containers with the enable label
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
