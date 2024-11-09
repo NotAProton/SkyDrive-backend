@@ -20,6 +20,13 @@ class UserSignUp(UserLogin):
 @router.post("/signup")
 async def signup(user: UserSignUp):
     try:
+        # check if email already exists
+        user_exists = supabase_admin.rpc(
+            "get_user_id_by_email", {"email": user.email}
+        ).execute()
+        if user_exists.data:
+            raise HTTPException(status_code=400, detail="User already exists")
+
         response = supabase.auth.sign_up(
             {
                 "email": user.email,
@@ -27,6 +34,7 @@ async def signup(user: UserSignUp):
                 "options": {"data": {"username": user.username}},
             }
         )
+        print(response)
         if response.user is None:
             raise HTTPException(status_code=400, detail="User creation failed")
         signup_response = {

@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_KEY: ${SUPABASE_KEY}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY}
+      API_V1_PREFIX: ${API_V1_PREFIX}
+      PROJECT_NAME: ${PROJECT_NAME}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+    restart: always

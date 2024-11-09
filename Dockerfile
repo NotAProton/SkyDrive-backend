@@ -1,0 +1,17 @@
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV SUPABASE_URL=$SUPABASE_URL
+ENV SUPABASE_KEY=$SUPABASE_KEY
+ENV SUPABASE_SECRET_KEY=$SUPABASE_SECRET_KEY
+ENV API_V1_PREFIX=$API_V1_PREFIX
+ENV PROJECT_NAME=$PROJECT_NAME
+ENV BACKEND_CORS_ORIGINS=$BACKEND_CORS_ORIGINS
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
