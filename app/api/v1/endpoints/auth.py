@@ -1,7 +1,9 @@
 import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
-from ....db.client import supabase, supabase_admin
 from pydantic import BaseModel
+
+from ....db.client import supabase, supabase_admin
 
 router = APIRouter()
 

@@ -1,9 +1,20 @@
-import boto3
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from typing import List
-from ....db.client import supabase
-from ....config import settings
+import base64
+import secrets
+import uuid
+from io import BytesIO
+from typing import List, Literal
 
+import boto3
+import fitz
+import pymupdf
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from PIL import Image
+from pydantic import BaseModel
+
+from app.auth import get_current_user
+
+from ....config import settings
+from ....db.client import supabase_admin
 
 s3 = boto3.client(
     service_name="s3",
@@ -15,75 +26,268 @@ s3 = boto3.client(
 
 router = APIRouter()
 
+
+class GetFiles(BaseModel):
+    filter: Literal["private", "shared"]
+
+
 @router.post("/")
-async def get_user_files(filter: str):
-    files = supabase.table('files').select('*').eq('filter', filter).execute()
-    return {
-        "message": "Files retrieved successfully",
-        "files": files.data
-    }
+async def get_user_files(req: GetFiles, userid=Depends(get_current_user)):
+    class File(BaseModel):
+        fileId: str
+        fileName: str
+        previewImage: str
+
+    data = None
+    files: List[File] = []
+
+    if req.filter == "private":
+        data = supabase_admin.table("files").select("*").eq("owner", userid).execute()
+    elif req.filter == "shared":
+        data = (
+            supabase_admin.table("files")
+            .select("*")
+            .contains("sharedWith", [userid])
+            .execute()
+        )
+
+    if data is not None and data.data is not None:
+        for db_file in data.data:
+            file = File(
+                fileId=db_file["id"],
+                fileName=db_file["filename"],
+                previewImage=db_file["preview_image"],
+            )
+            files.append(file)
+
+    return {"message": "Files retrieved successfully", "files": files}
+
+
+def generate_preview_image(file_content: bytes, filename: str) -> str:
+    # Check if the file is in the supported formats
+    if filename.lower().endswith((".png", ".jpeg", ".jpg")):
+        # Open the image file from bytes
+        image = Image.open(BytesIO(file_content))
+
+        # Create a 128x128 thumbnail
+        image.thumbnail((128, 128))
+
+        # Convert the thumbnail to PNG format and save to a BytesIO object
+        preview_image = BytesIO()
+        image.save(preview_image, format="PNG")
+
+        # Encode the image to base64
+        preview_image_base64 = base64.b64encode(preview_image.getvalue()).decode(
+            "utf-8"
+        )
+
+        return preview_image_base64
+    elif filename.lower().endswith(".pdf"):
+        # Open the PDF file from bytes
+        pdf_document = fitz.open(stream=file_content, filetype="pdf")
+        # Get the first page
+        page = pdf_document.load_page(0)
+        # Render the page to an image
+        pix = pymupdf.Pixmap(page)
+        image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+        # Create a 128x128 thumbnail
+        image.thumbnail((128, 128))
+
+        # Convert the thumbnail to PNG format and save to a BytesIO object
+        preview_image = BytesIO()
+        image.save(preview_image, format="PNG")
+
+        # Encode the image to base64
+        preview_image_base64 = base64.b64encode(preview_image.getvalue()).decode(
+            "utf-8"
+        )
+
+        return preview_image_base64
+    else:
+        raise ValueError(
+            "Unsupported file format. Only PDF, PNG, JPEG, and JPG are supported."
+        )
+
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), userid=Depends(get_current_user)):
+    if file.filename is None:
+        raise HTTPException(status_code=400, detail="File name is required")
     try:
-        s3.upload_fileobj(file.file, 'bucket_name', file.filename)
+        file_content = await file.read()
+        file_key = secrets.token_urlsafe(32)
+        s3.upload_fileobj(BytesIO(file_content), "skydrive", file_key)
+        id = str(uuid.uuid4())
         file_data = {
-            "fileId": "generated_file_id",
-            "fileName": file.filename,
-            "previewImage": "base64_encoded_image"
+            "id": id,
+            "file_url": f"https://dl-skydrive.akshatsaraswat.in/{file_key}",
+            "owner": userid,
+            "preview_image": generate_preview_image(file_content, file.filename),
+            "filename": file.filename,
         }
-        supabase.table('files').insert(file_data).execute()
+        supabase_admin.table("files").insert(file_data).execute()
+
         return {
             "message": "File uploaded successfully",
-            "fileId": file_data["fileId"],
-            "fileName": file_data["fileName"]
+            "fileId": id,
+            "fileName": file.filename,
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.get("/{fileId}/preview")
-async def preview_file(fileId: str):
-    file = supabase.table('files').select('*').eq('fileId', fileId).execute()
+async def preview_file(fileId: str, userid=Depends(get_current_user)):
+    # Get file data
+    file = supabase_admin.table("files").select("*").eq("id", fileId).execute()
     if not file.data:
         raise HTTPException(status_code=404, detail="File not found")
+
+    file_data = file.data[0]
+
+    # Check if user has access (either owner or shared)
+    shared_access = (
+        supabase_admin.table("shared")
+        .select("*")
+        .eq("file_id", fileId)
+        .eq("shared_with", userid)
+        .execute()
+    )
+    if file_data["owner"] != userid and not shared_access.data:
+        raise HTTPException(status_code=403, detail="Access denied")
+    shared_emails = []
+
+    if file_data["is_shared"]:
+        # get shared users of the file
+        shared_users_query = (
+            supabase_admin.table("shared")
+            .select("shared_with")
+            .eq("file_id", fileId)
+            .execute()
+        )
+        shared_users = [
+            user["shared_with"]
+            for user in shared_users_query.data
+            if user["shared_with"]
+        ]
+        shared_emails = map(
+            lambda user_id: supabase_admin.auth.admin.get_user_by_id(
+                user_id
+            ).user.email,
+            shared_users,
+        )
+
+    # Get owner email
+    owner_data = supabase_admin.auth.admin.get_user_by_id(file_data["owner"]).user
+    owner_email = owner_data.email if owner_data else "unknown"
+
     return {
         "message": "File preview retrieved successfully",
-        "fileId": file.data[0]["fileId"],
-        "downloadURL": "generated_download_url",
-        "previewImage": file.data[0]["previewImage"],
-        "createdAt": file.data[0]["createdAt"],
-        "createdBy": file.data[0]["createdBy"],
-        "isShared": file.data[0]["isShared"],
-        "sharedWith": file.data[0]["sharedWith"]
+        "fileId": file_data["id"],
+        "downloadURL": file_data["file_url"],
+        "previewImage": file_data["preview_image"],
+        "createdAt": file_data["created_at"],
+        "createdBy": owner_email,
+        "isShared": file_data["is_shared"],
+        "sharedWith": list(shared_emails),
     }
+
+
+class ShareReqBody(BaseModel):
+    email: str
+
 
 @router.patch("/{fileId}/share")
-async def share_file(fileId: str, email: str):
-    file = supabase.table('files').select('*').eq('fileId', fileId).execute()
-    if not file.data:
-        raise HTTPException(status_code=404, detail="File not found")
-    shared_with = file.data[0].get("sharedWith", [])
-    shared_with.append(email)
-    supabase.table('files').update({"sharedWith": shared_with}).eq('fileId', fileId).execute()
-    return {
-        "message": "Sharing settings updated successfully"
-    }
+async def share_file(fileId: str, req: ShareReqBody, userid=Depends(get_current_user)):
+    try:
+        print(fileId)
+        # Check file ownership
+        file_query = (
+            supabase_admin.table("files").select("owner").eq("id", fileId).execute()
+        )
+        print(file_query)
+        if not file_query.data:
+            return {"message": "File not found"}
+
+        if file_query.data[0]["owner"] != userid:
+            return {"message": "You are not the owner of this file"}
+
+        # Get recipient ID
+        recipient_query = supabase_admin.rpc(
+            "get_user_id_by_email", {"email": req.email}
+        ).execute()
+        print(recipient_query)
+        if not recipient_query.data:
+            return {"message": "Recipient not found"}
+
+        recipient_id = recipient_query.data[0]["id"]
+
+        # Check if file is already shared with this user
+        existing_share = (
+            supabase_admin.table("shared")
+            .select("*")
+            .eq("file_id", fileId)
+            .eq("shared_with", recipient_id)
+            .execute()
+        )
+
+        if existing_share.data:
+            return {"message": "File is already shared with this user"}
+
+        # Update file and create sharing record
+        supabase_admin.table("files").update({"is_shared": True}).eq(
+            "id", fileId
+        ).execute()
+        supabase_admin.table("shared").insert(
+            {"file_id": fileId, "shared_with": recipient_id}
+        ).execute()
+
+        return {"message": "File shared successfully"}
+    except Exception as e:
+        return {"message": str(e)}
+
 
 @router.delete("/{fileId}")
-async def delete_file(fileId: str):
-    file = supabase.table('files').select('*').eq('fileId', fileId).execute()
+async def delete_file(fileId: str, userid=Depends(get_current_user)):
+    file = supabase_admin.table("files").select("owner").eq("id", fileId).execute()
     if not file.data:
         raise HTTPException(status_code=404, detail="File not found")
-    supabase.table('files').delete().eq('fileId', fileId).execute()
-    return {
-        "message": "File deleted successfully"
-    }
+    if file.data[0]["owner"] != userid:
+        raise HTTPException(
+            status_code=403, detail="You are not the owner of this file"
+        )
+    s3.delete_object(Bucket="skydrive", Key=file.data[0]["file_url"].split("/")[-1])
+    supabase_admin.table("files").delete().eq("id", fileId).execute()
+    return {"message": "File deleted successfully"}
+
+
+class SearchReqBody(BaseModel):
+    query: str
+
 
 @router.post("/search")
-async def search_files(query: str):
-    files = supabase.table('files').select('*').ilike('fileName', f'%{query}%').execute()
-    return {
-        "message": "Files retrieved successfully",
-        "files": files.data
-    }
+async def search_files(req: SearchReqBody, userid=Depends(get_current_user)):
+    class File(BaseModel):
+        fileId: str
+        fileName: str
+        previewImage: str
 
+    # Query for owned and shared files using PostgreSQL RPC
+    data = supabase_admin.rpc(
+        "search_files", {"search_query": req.query.lower(), "user_id": userid}
+    ).execute()
+    print(data)
+
+    files: List[File] = []
+
+    if data.data is not None:
+        for db_file in data.data:
+            file = File(
+                fileId=db_file["id"],
+                fileName=db_file["filename"],
+                previewImage=db_file["preview_image"],
+            )
+            files.append(file)
+
+    return {"message": "Files retrieved successfully", "files": files}
