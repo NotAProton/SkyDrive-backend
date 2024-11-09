@@ -39,18 +39,20 @@ async def get_user_files(req: GetFiles, userid=Depends(get_current_user)):
 
     data = None
     files: List[File] = []
-
+    # Get files based on filter
     if req.filter == "private":
+        # Get only owned files
         data = supabase_admin.table("files").select("*").eq("owner", userid).execute()
-    elif req.filter == "shared":
+    else:
         data = (
             supabase_admin.table("files")
-            .select("*")
-            .contains("sharedWith", [userid])
+            .select("id, filename, preview_image, shared!inner(shared_with)")
+            .eq("shared.shared_with", userid)
             .execute()
         )
+        print(data)
 
-    if data is not None and data.data is not None:
+    if data.data is not None:
         for db_file in data.data:
             file = File(
                 fileId=db_file["id"],
