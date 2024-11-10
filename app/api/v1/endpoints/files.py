@@ -284,13 +284,19 @@ async def share_file(fileId: str, req: ShareReqBody, userid=Depends(get_current_
 
 @router.delete("/{fileId}")
 async def delete_file(fileId: str, userid=Depends(get_current_user)):
-    file = supabase_admin.table("files").select("owner").eq("id", fileId).execute()
+    file = (
+        supabase_admin.table("files")
+        .select("owner, file_url")
+        .eq("id", fileId)
+        .execute()
+    )
     if not file.data:
         raise HTTPException(status_code=404, detail="File not found")
     if file.data[0]["owner"] != userid:
         raise HTTPException(
             status_code=403, detail="You are not the owner of this file"
         )
+    print(file)
     s3.delete_object(Bucket="skydrive", Key=file.data[0]["file_url"].split("/")[-1])
     supabase_admin.table("files").delete().eq("id", fileId).execute()
     return {"message": "File deleted successfully"}
