@@ -63,7 +63,7 @@ async def get_user_files(req: GetFiles, userid=Depends(get_current_user)):
     return {"message": "Files retrieved successfully", "files": files}
 
 
-def squarify_image(image: Image.Image, size: int = 128) -> Image.Image:
+def squarify_image(image: Image.Image, size: int = 256) -> Image.Image:
     # Create a square canvas with blurred background
     target_size = (size, size)
     result = Image.new("RGBA", target_size, (255, 255, 255, 0))
