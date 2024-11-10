@@ -20,7 +20,6 @@ class UserSignUp(UserLogin):
 @router.post("/signup")
 async def signup(user: UserSignUp):
     try:
-        # check if email already exists
         user_exists = supabase_admin.rpc(
             "get_user_id_by_email", {"email": user.email}
         ).execute()

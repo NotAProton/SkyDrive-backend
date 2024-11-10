@@ -50,7 +50,6 @@ async def get_user_files(req: GetFiles, userid=Depends(get_current_user)):
             .eq("shared.shared_with", userid)
             .execute()
         )
-        print(data)
 
     if data.data is not None:
         for db_file in data.data:
@@ -243,7 +242,6 @@ async def share_file(fileId: str, req: ShareReqBody, userid=Depends(get_current_
         file_query = (
             supabase_admin.table("files").select("owner").eq("id", fileId).execute()
         )
-        print(file_query)
         if not file_query.data:
             return {"message": "File not found"}
 
@@ -254,7 +252,6 @@ async def share_file(fileId: str, req: ShareReqBody, userid=Depends(get_current_
         recipient_query = supabase_admin.rpc(
             "get_user_id_by_email", {"email": req.email}
         ).execute()
-        print(recipient_query)
         if not recipient_query.data:
             return {"message": "Recipient not found"}
 
@@ -314,7 +311,6 @@ async def search_files(req: SearchReqBody, userid=Depends(get_current_user)):
     data = supabase_admin.rpc(
         "search_files", {"search_query": req.query.lower(), "user_id": userid}
     ).execute()
-    print(data)
 
     files: List[File] = []
 
