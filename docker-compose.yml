@@ -10,4 +10,16 @@ services:
       API_V1_PREFIX: ${API_V1_PREFIX}
       PROJECT_NAME: ${PROJECT_NAME}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+      REDIS_URL: redis://redis:6379/0
     restart: always
+    depends_on:
+      - redis
+    networks:
+      - internal
+  redis:
+    image: "redis:alpine"
+    networks:
+      - internal
+networks:
+  internal:
+    internal: true

@@ -4,8 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ....db.client import supabase, supabase_admin
+import redis
+from ....config import settings
+
 
 router = APIRouter()
+
+r = redis.Redis.from_url(settings.REDIS_URL)
 
 
 class UserLogin(BaseModel):
@@ -56,9 +61,7 @@ async def login(user: UserLogin):
             raise HTTPException(status_code=400, detail="Login failed")
 
         token = secrets.token_urlsafe(32)
-        supabase_admin.table("sessions").insert(
-            {"token": token, "user_id": response.user.id}
-        ).execute()
+        r.set(token, response.user.id)
         login_response = {
             "message": "Login successful",
             "token": token,
