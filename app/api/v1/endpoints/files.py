@@ -6,7 +6,7 @@ from typing import List, Literal
 
 import boto3
 import pymupdf
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks
 from PIL import Image, ImageFilter
 from pydantic import BaseModel
 
@@ -145,29 +145,87 @@ def generate_preview_image(file_content: bytes, filename: str) -> str:
         )
 
 
+# New combined background task function
+async def process_file_upload(
+    file_content: bytes,
+    filename: str,
+    file_id: str,
+    file_key: str,
+    supabase_client,
+    s3_client,
+):
+    try:
+        # Upload to S3
+        s3_client.upload_fileobj(BytesIO(file_content), "skydrive", file_key)
+
+        # Generate and update preview
+        preview_image = generate_preview_image(file_content, filename)
+        # Update the file record with preview
+        supabase_client.table("files").update(
+            {
+                "preview_image": preview_image,
+                "file_url": f"https://dl-skydrive.akshatsaraswat.in/{file_key}",
+            }
+        ).match({"id": file_id}).execute()
+
+        print(f"File {filename} processed successfully")
+    except Exception as e:
+        print(f"File processing failed for {filename}: {str(e)}")
+
+
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...), userid=Depends(get_current_user)):
+async def upload_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    userid=Depends(get_current_user),
+):
     if file.filename is None:
         raise HTTPException(status_code=400, detail="File name is required")
+
+    if not file.filename.lower().endswith((".png", ".jpeg", ".jpg", ".pdf")):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF, PNG, JPEG, and JPG files are supported",
+        )
+
+    # Check file size (3MB limit)
+    file_content = await file.read()
+    if len(file_content) > 3 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds 3MB limit")
+
     try:
-        file_content = await file.read()
         file_key = secrets.token_urlsafe(32)
-        s3.upload_fileobj(BytesIO(file_content), "skydrive", file_key)
         id = str(uuid.uuid4())
+
+        # Initialize file data with placeholder preview
         file_data = {
             "id": id,
-            "file_url": f"https://dl-skydrive.akshatsaraswat.in/{file_key}",
+            "file_url": None,  # Will be updated in background
             "owner": userid,
-            "preview_image": generate_preview_image(file_content, file.filename),
+            "preview_image": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mO8Ww8AAj8BXkQ+xPEAAAAASUVORK5CYII=",
             "filename": file.filename,
         }
+
+        # Insert file data first
         supabase_admin.table("files").insert(file_data).execute()
 
+        # Schedule background processing
+        background_tasks.add_task(
+            process_file_upload,
+            file_content,
+            file.filename,
+            id,
+            file_key,
+            supabase_admin,
+            s3,
+        )
+        print("return response")
         return {
             "message": "File uploaded successfully",
             "fileId": id,
             "fileName": file.filename,
         }
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
